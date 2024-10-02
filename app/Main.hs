@@ -5,7 +5,9 @@
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Data.Text (Text)
--- import qualified Data.Text as T
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Discord
 import Discord.Types
 import qualified Discord.Requests as R
@@ -55,7 +57,7 @@ data ChannelPair = ChannelPair
 data Config = Config
   { configTelegramToken :: Telegram.Token
   , configDiscordToken :: Text
-  , discordDefaultChannel :: Text
+  , discordDefaultChannel :: Discord.Types.ChannelId
   , telegramTodiscordMapping :: [ChannelPair]
   }
 
@@ -76,8 +78,15 @@ telegramBot config = BotApp
   }
 
 -- Handle incoming Telegram updates
+-- handleUpdate' :: Telegram.Update -> Config -> Maybe Action
+-- handleUpdate' update config = do
+--   case handleUpdate update config of
+--     Nothing -> Just $ Error (T.pack (show update))
+--     Just v -> Just v
+
 handleUpdate :: Telegram.Update -> Config -> Maybe Action
-handleUpdate update config =
+handleUpdate update config = do
+  -- print logging
   updateMessage update >>= \msg ->  do
       let channelMap = M.fromList $ map (\ChannelPair{..} -> (telegramChannel, discordChannel)) (telegramTodiscordMapping config)
           chatid  = chatId (messageChat msg)
@@ -87,6 +96,9 @@ handleUpdate update config =
 
 -- Handle actions
 handleAction :: Action -> Config -> Eff Action Config
+-- handleAction (Error err) model =  model <# do
+--   liftIO $ T.putStr err
+--   pure NoOp
 handleAction NoOp model = pure model
 handleAction (ForwardMessage channel txt) model = model <# do
   liftIO $ sendToDiscord model channel txt
@@ -95,7 +107,6 @@ handleAction (ForwardMessage channel txt) model = model <# do
 -- Function to send message to Discord
 sendToDiscord :: Config -> Discord.Types.ChannelId -> Text -> IO ()
 sendToDiscord config channel txt = do
---  let msg = def { messageText = txt }
   void $ runDiscord (def { discordToken = configDiscordToken config, discordOnStart = handlers })
   where
     handlers = do
@@ -122,6 +133,6 @@ main = do
   Options {..} <- execParser (info options fullDesc)
   config <- Y.decodeFileThrow configFile
   let telegramToken = configTelegramToken config
-  
+
   env <- Telegram.defaultTelegramClientEnv telegramToken
   startBot_ (telegramBot config) env
